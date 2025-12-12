@@ -52,11 +52,14 @@ gcloud run deploy ${SERVICE_NAME} \
     --platform managed \
     --region ${REGION} \
     --allow-unauthenticated \
-    --set-env-vars GEMINI_API_KEY=${GEMINI_API_KEY} \
-    --memory 512Mi \
+    --set-env-vars GEMINI_API_KEY=${GEMINI_API_KEY},LOG_LEVEL=INFO \
+    --memory 1Gi \
     --cpu 1 \
     --timeout 300 \
     --max-instances 10 \
+    --min-instances 0 \
+    --port 8080 \
+    --startup-cpu-boost \
     --project ${PROJECT_ID}
 
 if [ $? -ne 0 ]; then
