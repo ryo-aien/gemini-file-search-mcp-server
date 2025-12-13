@@ -5,14 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 依存インストールのキャッシュ効率を高めるため、先に requirements をコピーする
-COPY requirements.txt /app/
+COPY . /app
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-# アプリケーションコードを配置
-COPY . /app
+    && pip install --no-cache-dir .
 
 EXPOSE 8080
 
