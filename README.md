@@ -20,17 +20,3 @@ python server.py
 ```
 
 Cloud Run などでデプロイする場合も同じエントリーポイントを利用します。
-
-## Docker/Cloud Run デプロイ
-リポジトリ直下に用意した `Dockerfile` を使ってイメージをビルドできます。
-
-```bash
-# ローカルビルド
-docker build -t gemini-file-search-mcp-server .
-
-# 実行例
-docker run --rm -p 8080:8080 -e GEMINI_API_KEY=YOUR_KEY gemini-file-search-mcp-server
-```
-
-Cloud Run へデプロイする場合は、上記のイメージを Artifact Registry に push した上で
-`gcloud run deploy` から参照してください。
