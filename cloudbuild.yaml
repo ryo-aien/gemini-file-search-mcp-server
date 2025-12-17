@@ -1,0 +1,49 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:latest'
+      - '.'
+
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:latest'
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'gemini-file-search-mcp'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'GEMINI_API_KEY=${_GEMINI_API_KEY}'
+
+images:
+  - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:latest'
+
+# Substitutions for environment variables
+substitutions:
+  _GEMINI_API_KEY: 'your_api_key_here'  # Override with --substitutions flag
+
+options:
+  logging: CLOUD_LOGGING_ONLY
