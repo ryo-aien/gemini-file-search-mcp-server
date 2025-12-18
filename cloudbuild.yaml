@@ -35,7 +35,7 @@ steps:
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'GEMINI_API_KEY=${_GEMINI_API_KEY}'
+      - 'GEMINI_API_KEY=${_GEMINI_API_KEY},MCP_TRANSPORT=http,MCP_AUTH_TOKENS=${_MCP_AUTH_TOKENS}'
 
 images:
   - 'gcr.io/$PROJECT_ID/gemini-file-search-mcp:$COMMIT_SHA'
@@ -44,6 +44,7 @@ images:
 # Substitutions for environment variables
 substitutions:
   _GEMINI_API_KEY: 'your_api_key_here'  # Override with --substitutions flag
+  _MCP_AUTH_TOKENS: 'your-secret-token-here:claude-desktop'  # Override with strong token in production
 
 options:
   logging: CLOUD_LOGGING_ONLY

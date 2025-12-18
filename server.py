@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
 from tools.store_tools import create_store, delete_store, get_store, list_stores
 from tools.document_tools import (
@@ -34,8 +35,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 認証プロバイダーの設定
+AUTH_TOKENS_STR = os.getenv("MCP_AUTH_TOKENS")
+auth_provider = None
+
+if AUTH_TOKENS_STR:
+    # カンマ区切りのトークンリストをパース
+    # 形式: "token1:client_id1,token2:client_id2"
+    tokens = {}
+    for token_pair in AUTH_TOKENS_STR.split(","):
+        token_pair = token_pair.strip()
+        if ":" in token_pair:
+            token, client_id = token_pair.split(":", 1)
+            tokens[token.strip()] = {
+                "client_id": client_id.strip(),
+                "scopes": ["mcp:access"],
+            }
+
+    if tokens:
+        auth_provider = StaticTokenVerifier(tokens=tokens)
+        logger.info(f"Bearer token authentication enabled with {len(tokens)} token(s)")
+else:
+    logger.warning("MCP_AUTH_TOKENS not set - authentication is DISABLED")
+
 # FastMCP サーバーの初期化
-mcp = FastMCP("Gemini File Search MCP")
+mcp = FastMCP("Gemini File Search MCP", auth=auth_provider)
 
 
 # ============================================================

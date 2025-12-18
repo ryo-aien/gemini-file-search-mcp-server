@@ -16,6 +16,7 @@ Gemini API の **File Search**（フルマネージドRAG）を、Model Context 
   - [ローカル開発](#ローカル開発)
   - [Docker でのビルドと実行](#docker-でのビルドと実行)
 - [Cloud Run へのデプロイ](#cloud-run-へのデプロイ)
+- [認証設定](#認証設定)
 - [使用方法](#使用方法)
 - [テスト](#テスト)
 - [ロギング](#ロギング)
@@ -368,14 +369,307 @@ gcloud run deploy gemini-file-search-mcp \
 `cloudbuild.yaml` が含まれている場合:
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml
+# 認証トークンを生成（推奨）
+TOKEN=$(openssl rand -base64 32)
+
+# デプロイ
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_GEMINI_API_KEY="your-gemini-key",_MCP_AUTH_TOKENS="${TOKEN}:claude-desktop"
+
+# トークンを安全に保存
+echo "Your MCP auth token: ${TOKEN}"
 ```
+
+**重要**: 生成されたトークンは、後でクライアント側の設定に使用するため、安全に保存してください。
+
+## 認証設定
+
+バージョン 0.2.0 以降、このMCPサーバーは **Bearer Token認証** をサポートしています。本番環境では、不正アクセスを防ぐため認証の有効化を強く推奨します。
+
+### 認証の概要
+
+- **認証方式**: Bearer Token（HTTP Authorizationヘッダー）
+- **実装**: FastMCPの組み込み `StaticTokenVerifier` を使用
+- **トークン形式**: `token:client_id`（カンマ区切りで複数指定可能）
+- **環境変数**: `MCP_AUTH_TOKENS`
+
+### トークンの生成
+
+強力なランダムトークンを生成することを推奨します:
+
+```bash
+# OpenSSL を使用（推奨）
+openssl rand -base64 32
+
+# 出力例: 8mQ7xK9pL2vR5nW3bC1dE4fG6hJ7iK8lM9nO0pQ1rS2=
+```
+
+### サーバー側の設定
+
+#### ローカル開発環境
+
+`.env` ファイルに認証トークンを追加:
+
+```bash
+# .env ファイルを編集
+GEMINI_API_KEY=your_gemini_api_key_here
+MCP_AUTH_TOKENS=test-token-123:local-dev
+MCP_TRANSPORT=stdio
+```
+
+複数のクライアントをサポートする場合:
+
+```bash
+MCP_AUTH_TOKENS=token1:claude-desktop,token2:mobile-app,token3:web-client
+```
+
+#### Cloud Run環境
+
+**方法1: Cloud Build経由（推奨）**
+
+```bash
+# 強力なトークンを生成
+TOKEN=$(openssl rand -base64 32)
+
+# デプロイ時にトークンを設定
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_GEMINI_API_KEY="your-key",_MCP_AUTH_TOKENS="${TOKEN}:production-client"
+```
+
+**方法2: 環境変数を直接更新**
+
+```bash
+# 既存のCloud Runサービスの環境変数を更新
+gcloud run services update gemini-file-search-mcp \
+  --region=us-central1 \
+  --set-env-vars="MCP_AUTH_TOKENS=your-token:client-id"
+```
+
+**方法3: Secret Manager使用（本番環境推奨）**
+
+```bash
+# シークレットを作成
+echo -n "your-strong-token:production-client" | \
+  gcloud secrets create mcp-auth-tokens --data-file=-
+
+# Cloud RunでSecretを使用
+gcloud run services update gemini-file-search-mcp \
+  --region=us-central1 \
+  --update-secrets=MCP_AUTH_TOKENS=mcp-auth-tokens:latest
+```
+
+### クライアント側の設定
+
+#### Claude Desktop
+
+Claude Desktopの設定ファイル（`claude_desktop_config.json`）に認証ヘッダーを追加:
+
+**設定ファイルの場所**:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**設定例**:
+
+```json
+{
+  "mcpServers": {
+    "gemini-file-search": {
+      "url": "https://your-cloud-run-url.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer your-auth-token-here"
+      }
+    }
+  }
+}
+```
+
+**注意**: 公式にはClaude Desktopはstdioトランスポートのみをサポートしています。HTTPトランスポートを使用する場合は、Claude APIまたはAgent SDKの利用を検討してください。
+
+#### Claude API / Agent SDK
+
+Claude APIやAgent SDKからMCPサーバーに接続する場合:
+
+```typescript
+import { Anthropic } from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic();
+
+const response = await anthropic.beta.messages.create({
+  model: "claude-sonnet-4-5",
+  max_tokens: 1000,
+  messages: [{ role: "user", content: "List available tools" }],
+  mcp_servers: [
+    {
+      type: "url",
+      url: "https://your-cloud-run-url.run.app/mcp",
+      name: "gemini-file-search",
+      authorization_token: process.env.MCP_AUTH_TOKEN
+    }
+  ],
+  tools: [
+    {
+      type: "mcp_toolset",
+      mcp_server_name: "gemini-file-search"
+    }
+  ],
+  betas: ["mcp-client-2025-11-20"]
+});
+```
+
+#### HTTPクライアント（curl等）
+
+```bash
+# 認証なしのリクエスト（401エラーになる）
+curl https://your-cloud-run-url.run.app/mcp
+
+# 認証ありのリクエスト
+curl -H "Authorization: Bearer your-token-here" \
+  https://your-cloud-run-url.run.app/mcp
+```
+
+### 認証のテスト
+
+#### ローカルテスト
+
+```bash
+# 1. .envファイルにトークンを設定
+echo 'MCP_AUTH_TOKENS=test-token-123:local-dev' >> .env
+
+# 2. サーバーを起動
+python server.py
+
+# 3. 別のターミナルで認証テスト
+# 正常なリクエスト
+curl -H "Authorization: Bearer test-token-123" http://localhost:8080/mcp
+
+# 認証なし（401エラーになることを確認）
+curl http://localhost:8080/mcp
+
+# 無効なトークン（401エラーになることを確認）
+curl -H "Authorization: Bearer invalid-token" http://localhost:8080/mcp
+```
+
+#### Cloud Runテスト
+
+```bash
+# pytestでCloud Runサービスをテスト
+pytest tests/test_cloud_run.py -v \
+  --url=https://your-cloud-run-url.run.app/mcp \
+  --token=your-deployed-token
+```
+
+### 認証の無効化
+
+開発環境で認証を無効にする場合、`MCP_AUTH_TOKENS` 環境変数を設定しないでください:
+
+```bash
+# .env ファイルから削除または空にする
+# MCP_AUTH_TOKENS=
+```
+
+サーバー起動時に以下のログが表示されます:
+```
+WARNING - MCP_AUTH_TOKENS not set - authentication is DISABLED
+```
+
+**注意**: 本番環境では必ず認証を有効にしてください。
+
+### セキュリティのベストプラクティス
+
+#### 1. 強力なトークンの使用
+
+```bash
+# 32文字以上のランダムトークンを生成
+openssl rand -base64 32
+```
+
+#### 2. トークンの定期的なローテーション
+
+3〜6ヶ月ごとにトークンを更新することを推奨:
+
+```bash
+# 新しいトークンを生成
+NEW_TOKEN=$(openssl rand -base64 32)
+
+# Secret Managerで新バージョンを作成
+gcloud secrets versions add mcp-auth-tokens \
+  --data-file=- <<EOF
+${NEW_TOKEN}:production-client
+EOF
+
+# クライアント側の設定を更新
+# （旧トークンも一時的に有効にしてダウンタイムなし移行も可能）
+```
+
+#### 3. トークンの安全な保管
+
+- **絶対にコミットしない**: `.env` ファイルは `.gitignore` に含める
+- **Secret Manager使用**: 本番環境ではGCP Secret Managerを使用
+- **環境ごとに異なるトークン**: 開発・ステージング・本番で異なるトークンを使用
+
+#### 4. ログ監視
+
+不正なアクセス試行を監視:
+
+```bash
+# Cloud Runのログを確認
+gcloud logging read \
+  'resource.type="cloud_run_revision" AND severity>=WARNING' \
+  --limit=50 \
+  --format=json
+```
+
+#### 5. HTTPS必須
+
+Cloud Runは自動的にHTTPSを強制しますが、カスタムドメインを使用する場合は必ずHTTPSを設定してください。
+
+### トラブルシューティング
+
+#### 401 Unauthorized エラー
+
+**原因**: トークンが無効または存在しない
+
+**解決方法**:
+```bash
+# Cloud Runの環境変数を確認
+gcloud run services describe gemini-file-search-mcp \
+  --region=us-central1 \
+  --format="value(spec.template.spec.containers[0].env)"
+
+# 環境変数を更新
+gcloud run services update gemini-file-search-mcp \
+  --region=us-central1 \
+  --set-env-vars="MCP_AUTH_TOKENS=new-token:client-id"
+```
+
+#### 認証が有効にならない
+
+**原因**: `MCP_AUTH_TOKENS`環境変数が正しく設定されていない
+
+**解決方法**: ログを確認
+```bash
+gcloud run logs read gemini-file-search-mcp --region=us-central1 --limit=50
+```
+
+"Bearer token authentication enabled"メッセージが表示されない場合、環境変数の設定を確認してください。
+
+#### トークン形式エラー
+
+**正しい形式**:
+- 単一クライアント: `token:client_id`
+- 複数クライアント: `token1:client1,token2:client2`
+
+**NGな例**:
+- `token`（client_id なし）
+- `token:client1:extra`（コロンが多すぎる）
 
 ## 使用方法
 
 ### MCP クライアントから接続
 
 Claude Desktop などの MCP クライアントから接続する場合、以下の設定を使用します:
+
+**認証なしの場合**（開発環境のみ推奨）:
 
 ```json
 {
@@ -387,6 +681,23 @@ Claude Desktop などの MCP クライアントから接続する場合、以下
   }
 }
 ```
+
+**認証ありの場合**（本番環境推奨）:
+
+```json
+{
+  "mcpServers": {
+    "gemini-file-search": {
+      "url": "https://your-cloud-run-url/mcp",
+      "headers": {
+        "Authorization": "Bearer your-auth-token-here"
+      }
+    }
+  }
+}
+```
+
+詳細な認証設定については、[認証設定](#認証設定)セクションを参照してください。
 
 ### ツールの使用例
 
@@ -526,9 +837,20 @@ pytest tests/test_local.py -v -s
 
 ### Cloud Run テスト
 
+**認証なしの場合**:
+
 ```bash
 # 仮想環境内で実行
 pytest tests/test_cloud_run.py -v --url=https://your-cloud-run-url/mcp
+```
+
+**認証ありの場合**（推奨）:
+
+```bash
+# 認証トークンを指定してテスト
+pytest tests/test_cloud_run.py -v \
+  --url=https://your-cloud-run-url/mcp \
+  --token=your-auth-token-here
 ```
 
 ## ロギング

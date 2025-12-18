@@ -15,19 +15,32 @@ class TestCloudRunMCPServer:
             pytest.skip("--url option not provided")
         return url
 
+    @pytest.fixture
+    def auth_token(self, request):
+        """認証トークンを取得する（コマンドライン引数から）."""
+        return request.config.getoption("--token", default=None)
+
     @pytest.mark.asyncio
-    async def test_server_health(self, server_url):
+    async def test_server_health(self, server_url, auth_token):
         """サーバーが応答することを確認する."""
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             # MCP エンドポイントにアクセス
-            response = await client.get(f"{server_url}/mcp")
+            response = await client.get(f"{server_url}/mcp", headers=headers)
             # MCP サーバーは通常 GET に対して 405 または 404 を返す
             # ここでは接続できることを確認
             assert response.status_code in [200, 404, 405]
 
     @pytest.mark.asyncio
-    async def test_list_supported_formats(self, server_url):
+    async def test_list_supported_formats(self, server_url, auth_token):
         """サポートされるファイル形式の一覧を取得する."""
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             # MCP リクエストを構築
             mcp_request = {
@@ -41,7 +54,7 @@ class TestCloudRunMCPServer:
             }
 
             response = await client.post(
-                f"{server_url}/mcp", json=mcp_request
+                f"{server_url}/mcp", json=mcp_request, headers=headers
             )
 
             assert response.status_code == 200
@@ -57,8 +70,12 @@ class TestCloudRunMCPServer:
                 assert "text" in data["supported_mime_types"]
 
     @pytest.mark.asyncio
-    async def test_store_lifecycle(self, server_url):
+    async def test_store_lifecycle(self, server_url, auth_token):
         """Store のライフサイクル（作成・取得・削除）をテストする."""
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             # Store を作成
             create_request = {
@@ -72,7 +89,7 @@ class TestCloudRunMCPServer:
             }
 
             response = await client.post(
-                f"{server_url}/mcp", json=create_request
+                f"{server_url}/mcp", json=create_request, headers=headers
             )
             assert response.status_code == 200
             result = response.json()
@@ -96,7 +113,7 @@ class TestCloudRunMCPServer:
                 }
 
                 response = await client.post(
-                    f"{server_url}/mcp", json=get_request
+                    f"{server_url}/mcp", json=get_request, headers=headers
                 )
                 assert response.status_code == 200
                 result = response.json()
@@ -114,7 +131,7 @@ class TestCloudRunMCPServer:
                     },
                 }
 
-                await client.post(f"{server_url}/mcp", json=delete_request)
+                await client.post(f"{server_url}/mcp", json=delete_request, headers=headers)
 
 
 def pytest_addoption(parser):
@@ -124,6 +141,12 @@ def pytest_addoption(parser):
         action="store",
         default=None,
         help="Cloud Run server URL (e.g., https://your-service.run.app)",
+    )
+    parser.addoption(
+        "--token",
+        action="store",
+        default=None,
+        help="Bearer token for authentication",
     )
 
 
