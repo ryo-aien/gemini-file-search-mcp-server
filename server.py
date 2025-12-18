@@ -45,15 +45,18 @@ if AUTH_TOKENS_STR:
     tokens = {}
     for token_pair in AUTH_TOKENS_STR.split(","):
         token_pair = token_pair.strip()
+        logger.info(f"token_pair {token_pair} ********************")
         if ":" in token_pair:
             token, client_id = token_pair.split(":", 1)
             tokens[token.strip()] = {
                 "client_id": client_id.strip(),
                 "scopes": ["mcp:access"],
             }
-
+    logger.info(f"Bearer token {tokens} ********************")
+    logger.info(f"client_id {client_id} ********************")
     if tokens:
         auth_provider = StaticTokenVerifier(tokens=tokens)
+        logger.info(f"auth_provider {auth_provider} ********************")
         logger.info(f"Bearer token authentication enabled with {len(tokens)} token(s)")
 else:
     logger.warning("MCP_AUTH_TOKENS not set - authentication is DISABLED")
